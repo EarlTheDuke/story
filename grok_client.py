@@ -78,15 +78,11 @@ class GrokClient:
         Returns:
             The URL of the generated image, or None if generation fails.
         """
-        try:
-            response = self._client.images.generate(
-                model=self.image_model,
-                prompt=prompt,
-                size=size,
-            )
-        except Exception:
-            # In an MVP we fail softly; the UI can skip the image if None.
-            return None
+        response = self._client.images.generate(
+            model=self.image_model,
+            prompt=prompt,
+            size=size,
+        )
 
         if not response.data:
             return None

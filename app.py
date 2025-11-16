@@ -7,8 +7,12 @@ st.set_page_config(page_title="Real-Time AI Storyteller", layout="wide")
 
 
 @st.cache_resource
-def get_grok_client() -> GrokClient:
-    return GrokClient()
+def get_grok_client(api_key: str) -> GrokClient:
+    """
+    Cache the Grok client, keyed by API key so we recreate it
+    if the user changes keys in the UI.
+    """
+    return GrokClient(api_key=api_key)
 
 
 SYSTEM_PROMPT = """
@@ -27,9 +31,31 @@ def init_session_state() -> None:
         st.session_state.messages = []
 
 
+def ask_for_api_key() -> str | None:
+    """
+    Let the user paste their xAI API key directly in the UI.
+    This bypasses any issues with .env loading on their machine.
+    """
+    saved = st.session_state.get("xai_api_key", "")
+    api_key = st.sidebar.text_input(
+        "xAI API key",
+        value=saved,
+        type="password",
+        help="Paste your xAI key from the x.ai console (it stays local on your machine).",
+    ).strip()
+    st.session_state["xai_api_key"] = api_key
+    return api_key or None
+
+
 def main() -> None:
     init_session_state()
-    client = get_grok_client()
+
+    api_key = ask_for_api_key()
+    if not api_key:
+        st.warning("Please paste your xAI API key in the left sidebar to begin.")
+        return
+
+    client = get_grok_client(api_key)
 
     st.title("🎭 Real-Time AI Storyteller with Grok")
     st.markdown(
@@ -76,9 +102,16 @@ def main() -> None:
         img_url = None
         if full_story_chunk.strip():
             image_prompt = build_image_prompt_from_story(full_story_chunk)
-            img_url = client.generate_image(image_prompt)
+            try:
+                img_url = client.generate_image(image_prompt)
+            except Exception as e:  # noqa: BLE001
+                st.error(f"Image generation failed: {e}")
+                img_url = None
+
             if img_url:
                 st.image(img_url, caption="Scene Illustration", use_column_width=True)
+            else:
+                st.info("No image was generated for this scene.")
 
     # Save assistant message (with image if any)
     st.session_state.messages.append(
