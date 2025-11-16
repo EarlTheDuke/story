@@ -131,8 +131,14 @@ def main() -> None:
         ["Cinematic", "Storybook", "Anime", "Comic", "Watercolor"],
         index=0,
     )
+    show_image_prompts = st.sidebar.checkbox(
+        "Show image prompts (debug)",
+        value=False,
+        help="Display the exact prompt sent to the image model for each scene.",
+    )
     st.session_state["story_tone"] = story_tone
     st.session_state["image_style"] = image_style
+    st.session_state["show_image_prompts"] = show_image_prompts
 
     st.title("🎭 Real-Time AI Storyteller with Grok")
     st.markdown(
@@ -145,6 +151,13 @@ def main() -> None:
             st.markdown(msg["content"])
             if img_url := msg.get("image_url"):
                 st.image(img_url, use_column_width=True)
+            if (
+                show_image_prompts
+                and msg.get("role") == "assistant"
+                and (img_prompt := msg.get("image_prompt"))
+            ):
+                with st.expander("Image prompt for this scene", expanded=False):
+                    st.markdown(img_prompt)
 
     prompt = st.chat_input("Start a new story or continue the current one...")
     if not prompt:
@@ -182,6 +195,7 @@ def main() -> None:
 
         # After streaming finishes, generate an image for this chunk
         img_url = None
+        image_prompt = None
         if full_story_chunk.strip():
             image_prompt = build_image_prompt_from_story(
                 full_story_chunk,
@@ -200,9 +214,18 @@ def main() -> None:
             else:
                 st.info("No image was generated for this scene.")
 
+            if show_image_prompts and image_prompt:
+                with st.expander("Image prompt for this scene", expanded=False):
+                    st.markdown(image_prompt)
+
     # Save assistant message (with image if any)
     st.session_state.messages.append(
-        {"role": "assistant", "content": full_story_chunk, "image_url": img_url}
+        {
+            "role": "assistant",
+            "content": full_story_chunk,
+            "image_url": img_url,
+            "image_prompt": image_prompt,
+        }
     )
 
 
