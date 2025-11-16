@@ -124,8 +124,15 @@ class GrokClient:
         if not text:
             return None
 
-        # Take only the first line/sentence and enforce a conservative length cap.
+        # Take only the first line and strip any leading labels like
+        # "Illustration moment:" that the model might add.
         first_line = text.splitlines()[0].strip()
+        lowered = first_line.lower()
+        for prefix in ("illustration moment:", "illustration:", "image prompt:", "image:"):
+            if lowered.startswith(prefix):
+                first_line = first_line[len(prefix) :].lstrip(" -:")
+                break
+
         if not first_line:
             first_line = text
 
@@ -270,10 +277,11 @@ def build_image_prompt_from_story(
     tone = (tone or "Neutral").lower()
     visual_style = (visual_style or "Cinematic").lower()
 
+    # Basic tone map, with a bit more drama for action-oriented scenes.
     tone_descriptions = {
         "neutral": "balanced mood, natural lighting",
         "cozy": "warm, comforting, soft lighting",
-        "epic": "grand, cinematic scale, dramatic lighting",
+        "epic": "grand, cinematic, high-energy lighting",
         "spooky": "dark, high-contrast, eerie lighting",
         "whimsical": "playful, colorful, imaginative atmosphere",
         "kids": "bright, friendly, simple shapes, soft edges",
@@ -281,6 +289,14 @@ def build_image_prompt_from_story(
         "horror": "ominous, high-contrast, unsettling details",
     }
     tone_phrase = tone_descriptions.get(tone, tone_descriptions["neutral"])
+
+    # Heuristic tweak: if the scene text clearly describes a chase, battle,
+    # or dangerous moment, lean into a more intense mood unless the user
+    # explicitly chose a very soft tone.
+    intense_keywords = ("chase", "pursuit", "run", "running", "battle", "fight", "explosion", "cliff", "edge", "gun", "rifle")
+    if any(k in scene_text.lower() for k in intense_keywords):
+        if tone in ("neutral", "scifi", "epic"):
+            tone_phrase = "high-energy, tense atmosphere, dramatic lighting"
 
     style_descriptions = {
         "cinematic": "cinematic digital painting, realistic proportions",
@@ -294,15 +310,20 @@ def build_image_prompt_from_story(
     # Optionally enrich with character descriptions when their names appear.
     char_phrase = ""
     if character_bible:
-        lowered = (scene_text or chunk).lower()
+        lowered_scene = (scene_text or chunk).lower()
         snippets = []
         for name, desc in character_bible.items():
             if not name or not desc:
                 continue
-            if name.lower() in lowered:
+            if name.lower() in lowered_scene:
                 snippets.append(f"{name}: {desc}")
             if len(snippets) >= 2:
                 break
+        # If none were detected in the scene text, fall back to the first
+        # character in the bible so we at least keep the main hero present.
+        if not snippets:
+            name, desc = next(iter(character_bible.items()))
+            snippets.append(f"{name}: {desc}")
         if snippets:
             joined = "; ".join(snippets)
             char_phrase = f" Character focus: {joined}."
