@@ -1,6 +1,8 @@
+import json
 import os
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from grok_client import GrokClient, build_image_prompt_from_story
 
@@ -31,6 +33,33 @@ Rules:
 def init_session_state() -> None:
     if "messages" not in st.session_state:
         st.session_state.messages = []
+
+
+def speak_text_with_browser_tts(text: str) -> None:
+    """
+    Trigger client-side text-to-speech using the browser's Web Speech API.
+
+    This keeps things simple (no extra API keys) and works both locally
+    and on Streamlit Cloud, as long as the user's browser supports TTS.
+    """
+    text = text.strip()
+    if not text:
+        return
+
+    safe_text = json.dumps(text)
+    components.html(
+        f"""
+        <script>
+        const text = {safe_text};
+        if ("speechSynthesis" in window) {{
+            const utterance = new SpeechSynthesisUtterance(text);
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(utterance);
+        }}
+        </script>
+        """,
+        height=0,
+    )
 
 
 def _preset_api_key() -> str:
@@ -130,6 +159,9 @@ def main() -> None:
         ):
             full_story_chunk += text_piece
             text_placeholder.markdown(full_story_chunk)
+
+        # Once the chunk is complete, trigger client-side TTS.
+        speak_text_with_browser_tts(full_story_chunk)
 
         # After streaming finishes, generate an image for this chunk
         img_url = None
