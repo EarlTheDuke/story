@@ -1,3 +1,5 @@
+import os
+
 import streamlit as st
 
 from grok_client import GrokClient, build_image_prompt_from_story
@@ -31,20 +33,51 @@ def init_session_state() -> None:
         st.session_state.messages = []
 
 
+def _preset_api_key() -> str:
+    """
+    Resolve an initial API key from (highest to lowest priority):
+    - session state (so it survives reruns)
+    - Streamlit secrets (Streamlit Cloud or local .streamlit/secrets.toml)
+    - environment variables (incl. .env if loaded)
+    """
+    # Session state takes priority
+    saved = st.session_state.get("xai_api_key")
+    if saved:
+        return saved
+
+    # Streamlit secrets (does not exist outside Streamlit runtime)
+    try:
+        if "XAI_API_KEY" in st.secrets:
+            return str(st.secrets["XAI_API_KEY"])
+    except Exception:
+        # st.secrets may not be available in some contexts
+        pass
+
+    # Environment variable as final fallback
+    return os.getenv("XAI_API_KEY", "")
+
+
 def ask_for_api_key() -> str | None:
     """
-    Let the user paste their xAI API key directly in the UI.
-    This bypasses any issues with .env loading on their machine.
+    Resolve the xAI API key, prefilling from secrets/env when available,
+    and letting the user override it via the sidebar.
     """
-    saved = st.session_state.get("xai_api_key", "")
+    preset = _preset_api_key()
+
     api_key = st.sidebar.text_input(
         "xAI API key",
-        value=saved,
+        value=preset,
         type="password",
-        help="Paste your xAI key from the x.ai console (it stays local on your machine).",
+        help=(
+            "If running on Streamlit Cloud, you can set XAI_API_KEY in app secrets "
+            "so you don't have to paste it here each time."
+        ),
     ).strip()
-    st.session_state["xai_api_key"] = api_key
-    return api_key or None
+
+    # If the user doesn't change the field, keep the preset value.
+    resolved = api_key or preset
+    st.session_state["xai_api_key"] = resolved
+    return resolved or None
 
 
 def main() -> None:
