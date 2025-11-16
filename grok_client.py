@@ -107,13 +107,32 @@ class GrokClient:
 
 def build_image_prompt_from_story(chunk: str) -> str:
     """
-    Very simple heuristic to turn a story chunk into an image prompt.
-    You can make this smarter later (LLM-based prompt extraction, etc.).
+    Turn a story chunk into a *short* image prompt.
+
+    xAI's image endpoint has a maximum prompt length (e.g. 1024 chars),
+    so we keep things compact by:
+    - focusing on the *end* of the chunk (usually the most recent scene)
+    - trimming to a conservative character limit.
     """
     chunk = chunk.strip()
+    if not chunk:
+        return "A simple abstract illustration."
+
+    # Naive sentence split; keeps the last 1–2 sentences.
+    sentences = [s.strip() for s in chunk.replace("?", ".").split(".") if s.strip()]
+    if not sentences:
+        scene_text = chunk[-400:]
+    else:
+        scene_text = ". ".join(sentences[-2:])  # last two sentences
+
+    # Hard cap to avoid hitting the model's max prompt length.
+    max_scene_chars = 400
+    if len(scene_text) > max_scene_chars:
+        scene_text = scene_text[-max_scene_chars:]
+
     return (
         "Highly detailed, cinematic illustration of the current scene from this story, "
-        f"vibrant lighting, cohesive character design, digital art style:\n\n{chunk}"
+        f"vibrant lighting, cohesive character design, digital art style: {scene_text}"
     )
 
 
