@@ -70,18 +70,18 @@ class GrokClient:
             if delta and delta.content:
                 yield delta.content
 
-    def generate_image(self, prompt: str, size: str = "1024x1024") -> Optional[str]:
+    def generate_image(self, prompt: str) -> Optional[str]:
         """
-        Generate an image URL from a text prompt using Grok's image endpoint
-        (OpenAI-compatible images.generate interface).
+        Generate an image URL from a text prompt using Grok's image endpoint.
 
         Returns:
             The URL of the generated image, or None if generation fails.
         """
+        # xAI's grok-2-image-1212 currently does not accept a `size` argument,
+        # so we only send the minimal required parameters.
         response = self._client.images.generate(
             model=self.image_model,
             prompt=prompt,
-            size=size,
         )
 
         if not response.data:
