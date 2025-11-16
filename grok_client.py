@@ -1,5 +1,5 @@
 import os
-from typing import Generator, Iterable, List, Optional
+from typing import Dict, Generator, Iterable, List, Optional
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -135,6 +135,78 @@ class GrokClient:
 
         return first_line
 
+    def extract_characters(self, story_text: str) -> Optional[Dict[str, str]]:
+        """
+        Ask Grok to identify the main characters and give each a short,
+        visually focused description to use for consistent illustrations.
+
+        Returns a dict mapping character name -> short visual description.
+        """
+        story_text = (story_text or "").strip()
+        if not story_text:
+            return None
+
+        system_msg = (
+            "You are a character designer for an illustrated story. "
+            "You summarize characters with short visual descriptions "
+            "that help artists draw them consistently."
+        )
+        user_msg = (
+            "From the story text below, list up to 4 MAIN characters who are likely "
+            "to appear repeatedly. For each character, write ONLY a short visual "
+            "description (30–120 characters) focusing on age, species, build, "
+            "hair/fur, clothing, distinctive items, overall vibe.\n\n"
+            "Return your answer as valid JSON of the form:\n"
+            "{\n"
+            '  \"Elena\": \"lean woman in a black trench coat, short dark hair, tech goggles\",\n'
+            '  \"Finn\": \"small russet fox with bright eyes and a torn blue scarf\"\n'
+            "}\n\n"
+            "Do NOT include any additional text outside the JSON.\n\n"
+            f"Story text:\n{story_text}"
+        )
+
+        try:
+            response = self._client.chat.completions.create(
+                model=self.text_model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_msg},
+                ],
+                stream=False,
+            )
+        except Exception:
+            return None
+
+        raw = (response.choices[0].message.content or "").strip()
+        if not raw:
+            return None
+
+        import json  # local import to avoid forcing json on consumers
+
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return None
+
+        if not isinstance(data, dict):
+            return None
+
+        cleaned: Dict[str, str] = {}
+        for name, desc in data.items():
+            if not isinstance(name, str) or not isinstance(desc, str):
+                continue
+            name_clean = name.strip()
+            desc_clean = desc.strip()
+            if not name_clean or not desc_clean:
+                continue
+            # Conservative length cap on description
+            max_len = 160
+            if len(desc_clean) > max_len:
+                desc_clean = desc_clean[: max_len - 3].rstrip(" .,;:") + "..."
+            cleaned[name_clean] = desc_clean
+
+        return cleaned or None
+
     def generate_image(self, prompt: str) -> Optional[str]:
         """
         Generate an image URL from a text prompt using Grok's image endpoint.
@@ -161,6 +233,7 @@ def build_image_prompt_from_story(
     tone: str = "Neutral",
     visual_style: str = "Cinematic",
     scene_summary: Optional[str] = None,
+    character_bible: Optional[Dict[str, str]] = None,
 ) -> str:
     """
     Turn a story chunk into a *short* image prompt.
@@ -218,6 +291,22 @@ def build_image_prompt_from_story(
     }
     style_phrase = style_descriptions.get(visual_style, style_descriptions["cinematic"])
 
+    # Optionally enrich with character descriptions when their names appear.
+    char_phrase = ""
+    if character_bible:
+        lowered = (scene_text or chunk).lower()
+        snippets = []
+        for name, desc in character_bible.items():
+            if not name or not desc:
+                continue
+            if name.lower() in lowered:
+                snippets.append(f"{name}: {desc}")
+            if len(snippets) >= 2:
+                break
+        if snippets:
+            joined = "; ".join(snippets)
+            char_phrase = f" Character focus: {joined}."
+
     # Hard cap on scene text to avoid hitting the model's max prompt length.
     max_scene_chars = 300
     if len(scene_text) > max_scene_chars:
@@ -227,6 +316,7 @@ def build_image_prompt_from_story(
         f"{shot_type} of the key moment in this scene: {scene_text}. "
         f"Mood: {tone_phrase}. Visual style: {style_phrase}. "
         "Highly detailed, cohesive character design."
+        f"{char_phrase}"
     )
 
     # Final safety cap.
@@ -243,6 +333,7 @@ def build_image_prompt_from_story(
         f"{shot_type} of the key moment in this scene: {trimmed_scene}. "
         f"Mood: {tone_phrase}. Visual style: {style_phrase}. "
         "Highly detailed, cohesive character design."
+        f"{char_phrase}"
     )
 
 

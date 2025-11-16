@@ -33,6 +33,8 @@ Rules:
 def init_session_state() -> None:
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    if "character_bible" not in st.session_state:
+        st.session_state.character_bible = {}
 
 
 def speak_text_with_browser_tts(text: str) -> None:
@@ -140,6 +142,14 @@ def main() -> None:
     st.session_state["image_style"] = image_style
     st.session_state["show_image_prompts"] = show_image_prompts
 
+    # Sidebar view of current character bible
+    with st.sidebar.expander("Character bible (auto)", expanded=False):
+        if st.session_state.character_bible:
+            for name, desc in st.session_state.character_bible.items():
+                st.markdown(f"- **{name}**: {desc}")
+        else:
+            st.caption("No characters extracted yet. They will appear after the first scene.")
+
     st.title("🎭 Real-Time AI Storyteller with Grok")
     st.markdown(
         "Enter a story idea or continuation. Grok will stream the story while generating images for each scene."
@@ -193,6 +203,22 @@ def main() -> None:
         # Once the chunk is complete, trigger client-side TTS.
         speak_text_with_browser_tts(full_story_chunk)
 
+        # Update character bible once we have at least one full scene.
+        if full_story_chunk.strip() and not st.session_state.character_bible:
+            # Use all assistant content so far (including this chunk) as context.
+            story_so_far = "\n\n".join(
+                m["content"]
+                for m in st.session_state.messages
+                if m["role"] == "assistant"
+            ) + f"\n\n{full_story_chunk}"
+            try:
+                characters = client.extract_characters(story_so_far)
+                if characters:
+                    st.session_state.character_bible.update(characters)
+            except Exception as e:  # noqa: BLE001
+                if show_image_prompts:
+                    st.warning(f"Character extraction failed: {e}")
+
         # After streaming finishes, generate an image for this chunk
         img_url = None
         image_prompt = None
@@ -212,6 +238,7 @@ def main() -> None:
                 tone=story_tone,
                 visual_style=image_style,
                 scene_summary=image_moment,
+                character_bible=st.session_state.character_bible,
             )
             try:
                 img_url = client.generate_image(image_prompt)
