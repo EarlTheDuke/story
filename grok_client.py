@@ -85,6 +85,56 @@ class GrokClient:
             if content:
                 yield content
 
+    def extract_image_moment(self, chunk: str) -> Optional[str]:
+        """
+        Ask Grok to describe the single best visual moment to illustrate
+        from a given story chunk, in one short, concrete sentence.
+        """
+        chunk = (chunk or "").strip()
+        if not chunk:
+            return None
+
+        system_msg = (
+            "You are a visual director for an illustrated storybook. "
+            "Your job is to pick the single most cinematic visual moment "
+            "from a story passage for an illustration."
+        )
+        user_msg = (
+            "Given the story text below, describe ONE visual moment to illustrate "
+            "in a single short sentence (under 120 characters). "
+            "Use concrete visual language, mention key character(s) and setting. "
+            "Do NOT ask questions. Do NOT include dialogue.\n\n"
+            f"Story passage:\n{chunk}\n\n"
+            "Illustration moment:"
+        )
+
+        try:
+            response = self._client.chat.completions.create(
+                model=self.text_model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_msg},
+                ],
+                stream=False,
+            )
+        except Exception:
+            return None
+
+        text = (response.choices[0].message.content or "").strip()
+        if not text:
+            return None
+
+        # Take only the first line/sentence and enforce a conservative length cap.
+        first_line = text.splitlines()[0].strip()
+        if not first_line:
+            first_line = text
+
+        max_chars = 160
+        if len(first_line) > max_chars:
+            first_line = first_line[: max_chars - 3].rstrip(" .,;:") + "..."
+
+        return first_line
+
     def generate_image(self, prompt: str) -> Optional[str]:
         """
         Generate an image URL from a text prompt using Grok's image endpoint.
@@ -110,6 +160,7 @@ def build_image_prompt_from_story(
     scene_index: int = 0,
     tone: str = "Neutral",
     visual_style: str = "Cinematic",
+    scene_summary: Optional[str] = None,
 ) -> str:
     """
     Turn a story chunk into a *short* image prompt.
@@ -119,16 +170,20 @@ def build_image_prompt_from_story(
     - shape the prompt using shot type + tone + style presets
     - trim to a conservative character limit.
     """
-    chunk = chunk.strip()
-    if not chunk:
+    chunk = (chunk or "").strip()
+    if not chunk and not scene_summary:
         return "A simple abstract illustration."
 
-    # Naive sentence split; keeps the last 1–2 sentences.
-    sentences = [s.strip() for s in chunk.replace("?", ".").split(".") if s.strip()]
-    if not sentences:
-        scene_text = chunk[-400:]
+    # Prefer a compact scene summary if provided; otherwise derive from the text.
+    if scene_summary:
+        scene_text = scene_summary.strip()
     else:
-        scene_text = ". ".join(sentences[-2:])  # last two sentences
+        # Naive sentence split; keeps the last 1–2 sentences.
+        sentences = [s.strip() for s in chunk.replace("?", ".").split(".") if s.strip()]
+        if not sentences:
+            scene_text = chunk[-400:]
+        else:
+            scene_text = ". ".join(sentences[-2:])  # last two sentences
 
     # Choose a simple shot type based on how many scenes have come before.
     if scene_index <= 0:

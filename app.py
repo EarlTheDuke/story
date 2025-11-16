@@ -196,12 +196,22 @@ def main() -> None:
         # After streaming finishes, generate an image for this chunk
         img_url = None
         image_prompt = None
+        image_moment = None
         if full_story_chunk.strip():
+            # Ask Grok for a concise visual moment to illustrate (Step 2).
+            try:
+                image_moment = client.extract_image_moment(full_story_chunk)
+            except Exception as e:  # noqa: BLE001
+                if show_image_prompts:
+                    st.warning(f"Image moment extraction failed: {e}")
+                image_moment = None
+
             image_prompt = build_image_prompt_from_story(
                 full_story_chunk,
                 scene_index=scene_index,
                 tone=story_tone,
                 visual_style=image_style,
+                scene_summary=image_moment,
             )
             try:
                 img_url = client.generate_image(image_prompt)
@@ -216,6 +226,10 @@ def main() -> None:
 
             if show_image_prompts and image_prompt:
                 with st.expander("Image prompt for this scene", expanded=False):
+                    if image_moment:
+                        st.markdown(f"**Key visual moment (from Grok):** {image_moment}")
+                        st.markdown("---")
+                    st.markdown("**Final image prompt sent to model:**")
                     st.markdown(image_prompt)
 
     # Save assistant message (with image if any)
@@ -225,6 +239,7 @@ def main() -> None:
             "content": full_story_chunk,
             "image_url": img_url,
             "image_prompt": image_prompt,
+            "image_moment": image_moment,
         }
     )
 
