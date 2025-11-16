@@ -105,14 +105,19 @@ class GrokClient:
         return response.data[0].url
 
 
-def build_image_prompt_from_story(chunk: str) -> str:
+def build_image_prompt_from_story(
+    chunk: str,
+    scene_index: int = 0,
+    tone: str = "Neutral",
+    visual_style: str = "Cinematic",
+) -> str:
     """
     Turn a story chunk into a *short* image prompt.
 
-    xAI's image endpoint has a maximum prompt length (e.g. 1024 chars),
-    so we keep things compact by:
-    - focusing on the *end* of the chunk (usually the most recent scene)
-    - trimming to a conservative character limit.
+    xAI's image endpoint has a maximum prompt length (e.g. 1024 chars), so we:
+    - focus on the *end* of the chunk (most recent scene)
+    - shape the prompt using shot type + tone + style presets
+    - trim to a conservative character limit.
     """
     chunk = chunk.strip()
     if not chunk:
@@ -125,14 +130,64 @@ def build_image_prompt_from_story(chunk: str) -> str:
     else:
         scene_text = ". ".join(sentences[-2:])  # last two sentences
 
-    # Hard cap to avoid hitting the model's max prompt length.
-    max_scene_chars = 400
+    # Choose a simple shot type based on how many scenes have come before.
+    if scene_index <= 0:
+        shot_type = "Wide establishing shot"
+    elif scene_index <= 2:
+        shot_type = "Medium shot"
+    else:
+        shot_type = "Dramatic close-up"
+
+    # Map tone & style presets to compact descriptors.
+    tone = (tone or "Neutral").lower()
+    visual_style = (visual_style or "Cinematic").lower()
+
+    tone_descriptions = {
+        "neutral": "balanced mood, natural lighting",
+        "cozy": "warm, comforting, soft lighting",
+        "epic": "grand, cinematic scale, dramatic lighting",
+        "spooky": "dark, high-contrast, eerie lighting",
+        "whimsical": "playful, colorful, imaginative atmosphere",
+        "kids": "bright, friendly, simple shapes, soft edges",
+        "scifi": "futuristic, cool lighting, sleek technology",
+        "horror": "ominous, high-contrast, unsettling details",
+    }
+    tone_phrase = tone_descriptions.get(tone, tone_descriptions["neutral"])
+
+    style_descriptions = {
+        "cinematic": "cinematic digital painting, realistic proportions",
+        "storybook": "soft storybook illustration, painterly textures",
+        "anime": "anime style, clean lines, expressive faces",
+        "comic": "comic-book illustration, bold lines, strong contrast",
+        "watercolor": "watercolor illustration, soft washes, subtle lines",
+    }
+    style_phrase = style_descriptions.get(visual_style, style_descriptions["cinematic"])
+
+    # Hard cap on scene text to avoid hitting the model's max prompt length.
+    max_scene_chars = 300
     if len(scene_text) > max_scene_chars:
         scene_text = scene_text[-max_scene_chars:]
 
+    base_prompt = (
+        f"{shot_type} of the key moment in this scene: {scene_text}. "
+        f"Mood: {tone_phrase}. Visual style: {style_phrase}. "
+        "Highly detailed, cohesive character design."
+    )
+
+    # Final safety cap.
+    max_total_chars = 600
+    if len(base_prompt) <= max_total_chars:
+        return base_prompt
+
+    # If it's still too long, trim the scene text further and rebuild once.
+    overflow = len(base_prompt) - max_total_chars
+    trimmed_scene = scene_text[:-overflow] if overflow < len(scene_text) else scene_text[: max_scene_chars // 2]
+    trimmed_scene = trimmed_scene.rstrip(" .,;:") + "..."
+
     return (
-        "Highly detailed, cinematic illustration of the current scene from this story, "
-        f"vibrant lighting, cohesive character design, digital art style: {scene_text}"
+        f"{shot_type} of the key moment in this scene: {trimmed_scene}. "
+        f"Mood: {tone_phrase}. Visual style: {style_phrase}. "
+        "Highly detailed, cohesive character design."
     )
 
 

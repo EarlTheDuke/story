@@ -119,6 +119,21 @@ def main() -> None:
 
     client = get_grok_client(api_key)
 
+    # Sidebar controls for story tone and image style
+    st.sidebar.markdown("### Story & Image Style")
+    story_tone = st.sidebar.selectbox(
+        "Story tone",
+        ["Neutral", "Cozy", "Epic", "Spooky", "Whimsical", "Kids", "SciFi", "Horror"],
+        index=0,
+    )
+    image_style = st.sidebar.selectbox(
+        "Image style",
+        ["Cinematic", "Storybook", "Anime", "Comic", "Watercolor"],
+        index=0,
+    )
+    st.session_state["story_tone"] = story_tone
+    st.session_state["image_style"] = image_style
+
     st.title("🎭 Real-Time AI Storyteller with Grok")
     st.markdown(
         "Enter a story idea or continuation. Grok will stream the story while generating images for each scene."
@@ -146,6 +161,8 @@ def main() -> None:
         for m in st.session_state.messages
         if m["role"] in ("user", "assistant")
     ]
+    # Determine which numbered scene this chunk represents
+    scene_index = sum(1 for m in st.session_state.messages if m["role"] == "assistant")
 
     # Stream Grok's story response
     with st.chat_message("assistant"):
@@ -166,7 +183,12 @@ def main() -> None:
         # After streaming finishes, generate an image for this chunk
         img_url = None
         if full_story_chunk.strip():
-            image_prompt = build_image_prompt_from_story(full_story_chunk)
+            image_prompt = build_image_prompt_from_story(
+                full_story_chunk,
+                scene_index=scene_index,
+                tone=story_tone,
+                visual_style=image_style,
+            )
             try:
                 img_url = client.generate_image(image_prompt)
             except Exception as e:  # noqa: BLE001
