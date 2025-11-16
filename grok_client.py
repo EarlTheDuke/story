@@ -85,10 +85,15 @@ class GrokClient:
             if content:
                 yield content
 
-    def extract_image_moment(self, chunk: str) -> Optional[str]:
+    def extract_image_moment(
+        self,
+        chunk: str,
+        beat_type: Optional[str] = None,
+    ) -> Optional[str]:
         """
         Ask Grok to describe the single best visual moment to illustrate
         from a given story chunk, in one short, concrete sentence.
+        Optionally hint at the desired framing based on beat type.
         """
         chunk = (chunk or "").strip()
         if not chunk:
@@ -99,11 +104,41 @@ class GrokClient:
             "Your job is to pick the single most cinematic visual moment "
             "from a story passage for an illustration."
         )
+
+        beat_type_clean = (beat_type or "").upper()
+        shot_pref = ""
+        if beat_type_clean == "ESTABLISHING":
+            shot_pref = (
+                "Choose a WIDE shot that shows the overall scene and environment, "
+                "including multiple key characters or elements, not a close-up."
+            )
+        elif beat_type_clean == "RESOLUTION":
+            shot_pref = (
+                "Choose a shot that shows the outcome and multiple characters in "
+                "the scene, with the environment clearly visible."
+            )
+        elif beat_type_clean == "ACTION":
+            shot_pref = (
+                "Choose a dynamic moment that shows movement and at least one main "
+                "character in context with the surroundings."
+            )
+        elif beat_type_clean == "CLIFFHANGER":
+            shot_pref = (
+                "You may choose a closer shot emphasizing the main character's "
+                "emotion and immediate danger."
+            )
+        elif beat_type_clean == "DISCOVERY":
+            shot_pref = (
+                "Focus on the character's reaction to a new revelation, with some "
+                "visual hint of what they are discovering."
+            )
+
         user_msg = (
             "Given the story text below, describe ONE visual moment to illustrate "
             "in a single short sentence (under 120 characters). "
             "Use concrete visual language, mention key character(s) and setting. "
             "Do NOT ask questions. Do NOT include dialogue.\n\n"
+            f"{shot_pref}\n\n"
             f"Story passage:\n{chunk}\n\n"
             "Illustration moment:"
         )
@@ -428,9 +463,37 @@ def build_image_prompt_from_story(
     if len(scene_text) > max_scene_chars:
         scene_text = scene_text[-max_scene_chars:]
 
+    # Add a brief framing phrase so the model reinforces zoom/context, not just
+    # the micro-level details.
+    framing_phrase = ""
+    if beat_type_clean == "ESTABLISHING":
+        framing_phrase = (
+            " Seen from a distance, capturing the wider environment and all key "
+            "characters within the scene."
+        )
+    elif beat_type_clean == "ACTION":
+        framing_phrase = (
+            " Framed to show the characters in motion with some of their "
+            "surroundings."
+        )
+    elif beat_type_clean == "DISCOVERY":
+        framing_phrase = (
+            " Framed to highlight the main character's reaction and what they are "
+            "discovering."
+        )
+    elif beat_type_clean == "CLIFFHANGER":
+        framing_phrase = (
+            " Framed tightly to emphasize expression and immediate danger."
+        )
+    elif beat_type_clean == "RESOLUTION":
+        framing_phrase = (
+            " Framed warmly to show the outcome and relationships between "
+            "characters."
+        )
+
     base_prompt = (
         f"{shot_type} of the key moment in this scene: {scene_text}. "
-        f"Mood: {mood_phrase}. Visual style: {style_phrase}. "
+        f"{framing_phrase} Mood: {mood_phrase}. Visual style: {style_phrase}. "
         "Highly detailed, cohesive character design."
         f"{char_phrase}"
     )
@@ -447,7 +510,7 @@ def build_image_prompt_from_story(
 
     return (
         f"{shot_type} of the key moment in this scene: {trimmed_scene}. "
-        f"Mood: {mood_phrase}. Visual style: {style_phrase}. "
+        f"{framing_phrase} Mood: {mood_phrase}. Visual style: {style_phrase}. "
         "Highly detailed, cohesive character design."
         f"{char_phrase}"
     )

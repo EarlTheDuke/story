@@ -257,16 +257,9 @@ def main() -> None:
         beat_type = None
         emotion_word = None
         if full_story_chunk.strip():
-            # Ask Grok for a concise visual moment, beat type, and emotion
+            # Ask Grok for beat type & emotion, then a visual moment
             # to illustrate when advanced prompts are enabled.
             if use_advanced_prompts:
-                try:
-                    image_moment = client.extract_image_moment(full_story_chunk)
-                except Exception as e:  # noqa: BLE001
-                    if show_image_prompts:
-                        st.warning(f"Image moment extraction failed: {e}")
-                    image_moment = None
-
                 try:
                     beat_info = client.extract_beat_and_emotion(full_story_chunk)
                 except Exception as e:  # noqa: BLE001
@@ -277,6 +270,15 @@ def main() -> None:
                 if beat_info:
                     beat_type = beat_info.get("beat")
                     emotion_word = beat_info.get("emotion")
+
+                try:
+                    image_moment = client.extract_image_moment(
+                        full_story_chunk, beat_type=beat_type
+                    )
+                except Exception as e:  # noqa: BLE001
+                    if show_image_prompts:
+                        st.warning(f"Image moment extraction failed: {e}")
+                    image_moment = None
 
             image_prompt = build_image_prompt_from_story(
                 full_story_chunk,
