@@ -121,7 +121,19 @@ def main() -> None:
 
     client = get_grok_client(api_key)
 
-    # Sidebar controls for story tone and image style
+    # Sidebar controls for prompt behavior and style
+    st.sidebar.markdown("### Image Prompt Settings")
+    use_advanced_prompts = st.sidebar.checkbox(
+        "Use advanced image prompts (extra Grok calls)",
+        value=True,
+        help="When enabled, uses extra Grok calls to pick key moments, beats, and emotions for each scene.",
+    )
+    keep_characters_consistent = st.sidebar.checkbox(
+        "Keep characters visually consistent",
+        value=True,
+        help="When enabled, builds a character bible and injects short visual descriptions into image prompts.",
+    )
+
     st.sidebar.markdown("### Story & Image Style")
     story_tone = st.sidebar.selectbox(
         "Story tone",
@@ -141,14 +153,19 @@ def main() -> None:
     st.session_state["story_tone"] = story_tone
     st.session_state["image_style"] = image_style
     st.session_state["show_image_prompts"] = show_image_prompts
+    st.session_state["use_advanced_prompts"] = use_advanced_prompts
+    st.session_state["keep_characters_consistent"] = keep_characters_consistent
 
     # Sidebar view of current character bible
     with st.sidebar.expander("Character bible (auto)", expanded=False):
-        if st.session_state.character_bible:
-            for name, desc in st.session_state.character_bible.items():
-                st.markdown(f"- **{name}**: {desc}")
+        if keep_characters_consistent:
+            if st.session_state.character_bible:
+                for name, desc in st.session_state.character_bible.items():
+                    st.markdown(f"- **{name}**: {desc}")
+            else:
+                st.caption("No characters extracted yet. They will appear after the first scene.")
         else:
-            st.caption("No characters extracted yet. They will appear after the first scene.")
+            st.caption("Character consistency is turned off.")
 
     st.title("🎭 Real-Time AI Storyteller with Grok")
     st.markdown(
@@ -167,6 +184,16 @@ def main() -> None:
                 and (img_prompt := msg.get("image_prompt"))
             ):
                 with st.expander("Image prompt for this scene", expanded=False):
+                    if image_moment := msg.get("image_moment"):
+                        st.markdown(f"**Key visual moment (from Grok):** {image_moment}")
+                        st.markdown("---")
+                    if beat_type := msg.get("beat_type"):
+                        st.markdown(f"**Beat type:** `{beat_type}`")
+                    if emotion := msg.get("emotion_word"):
+                        st.markdown(f"**Emotion:** `{emotion}`")
+                    if beat_type or emotion:
+                        st.markdown("---")
+                    st.markdown("**Final image prompt sent to model:**")
                     st.markdown(img_prompt)
 
     prompt = st.chat_input("Start a new story or continue the current one...")
@@ -204,7 +231,11 @@ def main() -> None:
         speak_text_with_browser_tts(full_story_chunk)
 
         # Update character bible once we have at least one full scene.
-        if full_story_chunk.strip() and not st.session_state.character_bible:
+        if (
+            keep_characters_consistent
+            and full_story_chunk.strip()
+            and not st.session_state.character_bible
+        ):
             # Use all assistant content so far (including this chunk) as context.
             story_so_far = "\n\n".join(
                 m["content"]
@@ -223,14 +254,29 @@ def main() -> None:
         img_url = None
         image_prompt = None
         image_moment = None
+        beat_type = None
+        emotion_word = None
         if full_story_chunk.strip():
-            # Ask Grok for a concise visual moment to illustrate (Step 2).
-            try:
-                image_moment = client.extract_image_moment(full_story_chunk)
-            except Exception as e:  # noqa: BLE001
-                if show_image_prompts:
-                    st.warning(f"Image moment extraction failed: {e}")
-                image_moment = None
+            # Ask Grok for a concise visual moment, beat type, and emotion
+            # to illustrate when advanced prompts are enabled.
+            if use_advanced_prompts:
+                try:
+                    image_moment = client.extract_image_moment(full_story_chunk)
+                except Exception as e:  # noqa: BLE001
+                    if show_image_prompts:
+                        st.warning(f"Image moment extraction failed: {e}")
+                    image_moment = None
+
+                try:
+                    beat_info = client.extract_beat_and_emotion(full_story_chunk)
+                except Exception as e:  # noqa: BLE001
+                    if show_image_prompts:
+                        st.warning(f"Beat/emotion extraction failed: {e}")
+                    beat_info = None
+
+                if beat_info:
+                    beat_type = beat_info.get("beat")
+                    emotion_word = beat_info.get("emotion")
 
             image_prompt = build_image_prompt_from_story(
                 full_story_chunk,
@@ -238,7 +284,11 @@ def main() -> None:
                 tone=story_tone,
                 visual_style=image_style,
                 scene_summary=image_moment,
-                character_bible=st.session_state.character_bible,
+                character_bible=st.session_state.character_bible
+                if keep_characters_consistent
+                else None,
+                beat_type=beat_type,
+                emotion_word=emotion_word,
             )
             try:
                 img_url = client.generate_image(image_prompt)
@@ -256,6 +306,12 @@ def main() -> None:
                     if image_moment:
                         st.markdown(f"**Key visual moment (from Grok):** {image_moment}")
                         st.markdown("---")
+                    if beat_type:
+                        st.markdown(f"**Beat type:** `{beat_type}`")
+                    if emotion_word:
+                        st.markdown(f"**Emotion:** `{emotion_word}`")
+                    if beat_type or emotion_word:
+                        st.markdown("---")
                     st.markdown("**Final image prompt sent to model:**")
                     st.markdown(image_prompt)
 
@@ -267,6 +323,8 @@ def main() -> None:
             "image_url": img_url,
             "image_prompt": image_prompt,
             "image_moment": image_moment,
+            "beat_type": beat_type,
+            "emotion_word": emotion_word,
         }
     )
 

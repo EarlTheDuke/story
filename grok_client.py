@@ -128,7 +128,12 @@ class GrokClient:
         # "Illustration moment:" that the model might add.
         first_line = text.splitlines()[0].strip()
         lowered = first_line.lower()
-        for prefix in ("illustration moment:", "illustration:", "image prompt:", "image:"):
+        for prefix in (
+            "illustration moment:",
+            "illustration:",
+            "image prompt:",
+            "image:",
+        ):
             if lowered.startswith(prefix):
                 first_line = first_line[len(prefix) :].lstrip(" -:")
                 break
@@ -141,6 +146,74 @@ class GrokClient:
             first_line = first_line[: max_chars - 3].rstrip(" .,;:") + "..."
 
         return first_line
+
+    def extract_beat_and_emotion(self, chunk: str) -> Optional[Dict[str, str]]:
+        """
+        Ask Grok to classify the story chunk into a simple beat type and
+        a dominant emotion for the main character.
+
+        Returns a dict like:
+        { "beat": "ACTION", "emotion": "anxious" }
+        """
+        chunk = (chunk or "").strip()
+        if not chunk:
+            return None
+
+        system_msg = (
+            "You are a story structure analyst and emotion classifier. "
+            "You label story beats and dominant emotions for the main character."
+        )
+        user_msg = (
+            "From the story passage below, choose:\n"
+            "- a BEAT type from exactly this set: "
+            "[ESTABLISHING, ACTION, DISCOVERY, CLIFFHANGER, RESOLUTION]\n"
+            "- a single-word emotion (lowercase) describing the MAIN character's "
+            "dominant feeling (e.g., 'anxious', 'hopeful', 'terrified', 'curious').\n\n"
+            "Return ONLY valid JSON like:\n"
+            "{ \"beat\": \"ACTION\", \"emotion\": \"determined\" }\n\n"
+            "Do NOT include any extra commentary.\n\n"
+            f"Story passage:\n{chunk}"
+        )
+
+        try:
+            response = self._client.chat.completions.create(
+                model=self.text_model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_msg},
+                ],
+                stream=False,
+            )
+        except Exception:
+            return None
+
+        raw = (response.choices[0].message.content or "").strip()
+        if not raw:
+            return None
+
+        import json  # local import
+
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return None
+
+        if not isinstance(data, dict):
+            return None
+
+        beat = str(data.get("beat", "")).strip().upper()
+        emotion = str(data.get("emotion", "")).strip().lower()
+        if beat not in {"ESTABLISHING", "ACTION", "DISCOVERY", "CLIFFHANGER", "RESOLUTION"}:
+            beat = ""
+        if not emotion:
+            emotion = ""
+
+        result: Dict[str, str] = {}
+        if beat:
+            result["beat"] = beat
+        if emotion:
+            result["emotion"] = emotion
+        return result or None
 
     def extract_characters(self, story_text: str) -> Optional[Dict[str, str]]:
         """
@@ -241,6 +314,8 @@ def build_image_prompt_from_story(
     visual_style: str = "Cinematic",
     scene_summary: Optional[str] = None,
     character_bible: Optional[Dict[str, str]] = None,
+    beat_type: Optional[str] = None,
+    emotion_word: Optional[str] = None,
 ) -> str:
     """
     Turn a story chunk into a *short* image prompt.
@@ -265,13 +340,27 @@ def build_image_prompt_from_story(
         else:
             scene_text = ". ".join(sentences[-2:])  # last two sentences
 
-    # Choose a simple shot type based on how many scenes have come before.
-    if scene_index <= 0:
+    # Choose a shot type based on beat type when available, otherwise fall back
+    # to a simple scene index heuristic.
+    shot_type = ""
+    beat_type_clean = (beat_type or "").upper()
+    if beat_type_clean == "ESTABLISHING":
         shot_type = "Wide establishing shot"
-    elif scene_index <= 2:
-        shot_type = "Medium shot"
+    elif beat_type_clean == "ACTION":
+        shot_type = "Dynamic medium shot, showing movement"
+    elif beat_type_clean == "DISCOVERY":
+        shot_type = "Medium shot focused on the character's reaction"
+    elif beat_type_clean == "CLIFFHANGER":
+        shot_type = "Tight, dramatic close-up"
+    elif beat_type_clean == "RESOLUTION":
+        shot_type = "Warm medium-wide shot showing the outcome"
     else:
-        shot_type = "Dramatic close-up"
+        if scene_index <= 0:
+            shot_type = "Wide establishing shot"
+        elif scene_index <= 2:
+            shot_type = "Medium shot"
+        else:
+            shot_type = "Dramatic close-up"
 
     # Map tone & style presets to compact descriptors.
     tone = (tone or "Neutral").lower()
@@ -297,6 +386,12 @@ def build_image_prompt_from_story(
     if any(k in scene_text.lower() for k in intense_keywords):
         if tone in ("neutral", "scifi", "epic"):
             tone_phrase = "high-energy, tense atmosphere, dramatic lighting"
+
+    # Combine explicit emotion word (if any) with the tone phrase.
+    if emotion_word:
+        mood_phrase = f"{emotion_word} mood, {tone_phrase}"
+    else:
+        mood_phrase = tone_phrase
 
     style_descriptions = {
         "cinematic": "cinematic digital painting, realistic proportions",
@@ -335,7 +430,7 @@ def build_image_prompt_from_story(
 
     base_prompt = (
         f"{shot_type} of the key moment in this scene: {scene_text}. "
-        f"Mood: {tone_phrase}. Visual style: {style_phrase}. "
+        f"Mood: {mood_phrase}. Visual style: {style_phrase}. "
         "Highly detailed, cohesive character design."
         f"{char_phrase}"
     )
@@ -352,7 +447,7 @@ def build_image_prompt_from_story(
 
     return (
         f"{shot_type} of the key moment in this scene: {trimmed_scene}. "
-        f"Mood: {tone_phrase}. Visual style: {style_phrase}. "
+        f"Mood: {mood_phrase}. Visual style: {style_phrase}. "
         "Highly detailed, cohesive character design."
         f"{char_phrase}"
     )
