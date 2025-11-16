@@ -19,7 +19,7 @@ def get_grok_client(api_key: str) -> GrokClient:
     return GrokClient(api_key=api_key)
 
 
-SYSTEM_PROMPT = """
+STORY_SYSTEM_PROMPT = """
 You are an imaginative, cinematic storyteller.
 Write in vivid, visual language that is easy to turn into illustrations.
 
@@ -27,6 +27,13 @@ Rules:
 - Continue the story in 120–200 words per response.
 - End each response with a small cliffhanger or open question.
 - Keep the narration focused on concrete scenes, characters, and actions.
+"""
+
+FACT_SYSTEM_PROMPT = """
+You are a knowledgeable, clear explainer.
+Give accurate, concise answers about real history, science, technology, and events.
+Use paragraphs, not bullet points. Do NOT invent fictional facts.
+If you are unsure, say what is and is not known.
 """
 
 
@@ -121,6 +128,17 @@ def main() -> None:
 
     client = get_grok_client(api_key)
 
+    # Mode selection: story vs. real-world factual answers
+    st.sidebar.markdown("### Mode")
+    mode = st.sidebar.radio(
+        "Response type",
+        ["Story", "Real-world answer"],
+        index=0,
+        help="Choose between imaginative storytelling or factual, real-world explanations.",
+    )
+    is_story_mode = mode == "Story"
+    system_prompt = STORY_SYSTEM_PROMPT if is_story_mode else FACT_SYSTEM_PROMPT
+
     # Sidebar controls for prompt behavior and style
     st.sidebar.markdown("### Image Prompt Settings")
     use_advanced_prompts = st.sidebar.checkbox(
@@ -167,10 +185,17 @@ def main() -> None:
         else:
             st.caption("Character consistency is turned off.")
 
-    st.title("🎭 Real-Time AI Storyteller with Grok")
-    st.markdown(
-        "Enter a story idea or continuation. Grok will stream the story while generating images for each scene."
-    )
+    if is_story_mode:
+        st.title("🎭 Real-Time AI Storyteller with Grok")
+        st.markdown(
+            "Enter a story idea or continuation. Grok will stream the story while generating images for each scene."
+        )
+    else:
+        st.title("📘 Real-Time Illustrated Answers with Grok")
+        st.markdown(
+            "Ask a question about real history, science, or anything factual. "
+            "Grok will answer while generating an illustration that helps explain it."
+        )
 
     # Show history
     for msg in st.session_state.messages:
@@ -220,7 +245,7 @@ def main() -> None:
         full_story_chunk = ""
 
         for text_piece in client.stream_story(
-            system_prompt=SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_prompt=prompt,
             history=history,
         ):
@@ -273,7 +298,9 @@ def main() -> None:
 
                 try:
                     image_moment = client.extract_image_moment(
-                        full_story_chunk, beat_type=beat_type
+                        full_story_chunk,
+                        beat_type=beat_type,
+                        mode="story" if is_story_mode else "real",
                     )
                 except Exception as e:  # noqa: BLE001
                     if show_image_prompts:

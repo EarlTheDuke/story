@@ -89,6 +89,7 @@ class GrokClient:
         self,
         chunk: str,
         beat_type: Optional[str] = None,
+        mode: str = "story",
     ) -> Optional[str]:
         """
         Ask Grok to describe the single best visual moment to illustrate
@@ -100,9 +101,9 @@ class GrokClient:
             return None
 
         system_msg = (
-            "You are a visual director for an illustrated storybook. "
-            "Your job is to pick the single most cinematic visual moment "
-            "from a story passage for an illustration."
+            "You are a visual director for an illustrated storybook or an "
+            "illustrated encyclopedia. Your job is to pick the single most "
+            "helpful visual moment or illustration for a given text."
         )
 
         beat_type_clean = (beat_type or "").upper()
@@ -133,14 +134,33 @@ class GrokClient:
                 "visual hint of what they are discovering."
             )
 
+        mode_clean = (mode or "story").lower()
+        if mode_clean == "real":
+            base_instruction = (
+                "Given the answer text below, describe ONE visual illustration "
+                "that would best help someone understand it. If it describes a "
+                "real historical event, choose the most iconic scene showing key "
+                "people/objects and the wider context. If it explains a concept, "
+                "choose a simple diagram, map, or situation that illustrates the idea. "
+                "Write a single short sentence (under 120 characters). "
+                "Use concrete visual language. Do NOT ask questions. "
+                "Do NOT include dialogue."
+            )
+            label = "Illustration moment"
+        else:
+            base_instruction = (
+                "Given the story text below, describe ONE visual moment to illustrate "
+                "in a single short sentence (under 120 characters). "
+                "Use concrete visual language, mention key character(s) and setting. "
+                "Do NOT ask questions. Do NOT include dialogue."
+            )
+            label = "Illustration moment"
+
         user_msg = (
-            "Given the story text below, describe ONE visual moment to illustrate "
-            "in a single short sentence (under 120 characters). "
-            "Use concrete visual language, mention key character(s) and setting. "
-            "Do NOT ask questions. Do NOT include dialogue.\n\n"
+            f"{base_instruction}\n\n"
             f"{shot_pref}\n\n"
-            f"Story passage:\n{chunk}\n\n"
-            "Illustration moment:"
+            f"Text:\n{chunk}\n\n"
+            f"{label}:"
         )
 
         try:
