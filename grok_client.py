@@ -59,16 +59,31 @@ class GrokClient:
             messages.extend(history)
         messages.append({"role": "user", "content": user_prompt})
 
-        stream = self._client.chat.completions.create(
-            model=self.text_model,
-            messages=messages,
-            stream=True,
-        )
+        # Primary path: streaming
+        try:
+            stream = self._client.chat.completions.create(
+                model=self.text_model,
+                messages=messages,
+                stream=True,
+            )
 
-        for chunk in stream:
-            delta = chunk.choices[0].delta
-            if delta and delta.content:
-                yield delta.content
+            for chunk in stream:
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield delta.content
+            return
+        except Exception:
+            # Some environments (or transient network issues) can cause
+            # streaming to fail with protocol errors. Fall back to a
+            # single non-streaming response so the app still works.
+            response = self._client.chat.completions.create(
+                model=self.text_model,
+                messages=messages,
+                stream=False,
+            )
+            content = response.choices[0].message.content or ""
+            if content:
+                yield content
 
     def generate_image(self, prompt: str) -> Optional[str]:
         """
