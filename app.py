@@ -217,7 +217,7 @@ def main() -> None:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if img := msg.get("image"):
-                st.image(img, use_column_width=True)
+                st.image(img, use_container_width=True)
             if (
                 show_image_prompts
                 and msg.get("role") == "assistant"
@@ -345,7 +345,7 @@ def main() -> None:
                 img_obj = None
 
             if img_obj is not None:
-                st.image(img_obj, caption="Scene Illustration", use_column_width=True)
+                st.image(img_obj, caption="Scene Illustration", use_container_width=True)
             else:
                 st.info("No image was generated for this scene.")
 
