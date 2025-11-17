@@ -156,13 +156,19 @@ def main() -> None:
         "Image backend",
         [
             "Grok (xAI API)",
-            "Local Stable Diffusion (Diffusers)",
+            "Local SDXL Turbo (fast)",
+            "Local SDXL Base (high quality)",
         ],
         index=0,
         help="Choose which image generator to use.",
     )
-    if "Stable Diffusion" in image_backend_label:
+    sd_model_id: Optional[str] = None
+    if "SDXL" in image_backend_label:
         image_backend = ImageBackend.STABLE_DIFFUSION
+        if "Base" in image_backend_label:
+            sd_model_id = "stabilityai/stable-diffusion-xl-base-1.0"
+        else:
+            sd_model_id = "stabilityai/sdxl-turbo"
     else:
         image_backend = ImageBackend.GROK
 
@@ -174,7 +180,7 @@ def main() -> None:
     )
     image_style = st.sidebar.selectbox(
         "Image style",
-        ["Cinematic", "Storybook", "Anime", "Comic", "Watercolor"],
+        ["Cinematic", "Photorealistic", "Diagram", "Storybook", "Anime", "Comic", "Watercolor"],
         index=0,
     )
     show_image_prompts = st.sidebar.checkbox(
@@ -188,6 +194,7 @@ def main() -> None:
     st.session_state["use_advanced_prompts"] = use_advanced_prompts
     st.session_state["keep_characters_consistent"] = keep_characters_consistent
     st.session_state["image_backend"] = image_backend
+    st.session_state["sd_model_id"] = sd_model_id
 
     # Sidebar view of current character bible
     with st.sidebar.expander("Character bible (auto)", expanded=False):
@@ -339,6 +346,7 @@ def main() -> None:
                     image_prompt,
                     backend=image_backend,
                     grok_client=client,
+                    sd_model_id=sd_model_id,
                 )
             except Exception as e:  # noqa: BLE001
                 st.error(f"Image generation failed: {e}")

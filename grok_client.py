@@ -452,6 +452,8 @@ def build_image_prompt_from_story(
 
     style_descriptions = {
         "cinematic": "cinematic digital painting, realistic proportions",
+        "photorealistic": "photorealistic image, natural lighting, accurate colors",
+        "diagram": "simple clear diagram, clean lines, labeled parts, white background",
         "storybook": "soft storybook illustration, painterly textures",
         "anime": "anime style, clean lines, expressive faces",
         "comic": "comic-book illustration, bold lines, strong contrast",
