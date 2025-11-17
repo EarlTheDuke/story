@@ -188,6 +188,28 @@ def main() -> None:
         value=False,
         help="Display the exact prompt sent to the image model for each scene.",
     )
+    st.sidebar.markdown("### Custom image prompt (optional)")
+    custom_prompt_default = st.session_state.get("custom_image_prompt", "")
+    custom_prompt = st.sidebar.text_area(
+        "Custom image prompt for next scene (optional)",
+        value=custom_prompt_default,
+        height=80,
+    )
+    existing_mode = st.session_state.get("custom_image_prompt_mode", "off")
+    mode_to_label = {
+        "off": "Off",
+        "enhance": "Enhance auto prompt",
+        "replace": "Replace auto prompt",
+    }
+    label_to_mode = {v: k for k, v in mode_to_label.items()}
+    custom_mode_label = st.sidebar.radio(
+        "How to use the custom prompt",
+        ["Off", "Enhance auto prompt", "Replace auto prompt"],
+        index=["Off", "Enhance auto prompt", "Replace auto prompt"].index(
+            mode_to_label.get(existing_mode, "Off")
+        ),
+    )
+    custom_mode = label_to_mode[custom_mode_label]
     st.session_state["story_tone"] = story_tone
     st.session_state["image_style"] = image_style
     st.session_state["show_image_prompts"] = show_image_prompts
@@ -195,6 +217,8 @@ def main() -> None:
     st.session_state["keep_characters_consistent"] = keep_characters_consistent
     st.session_state["image_backend"] = image_backend
     st.session_state["sd_model_id"] = sd_model_id
+    st.session_state["custom_image_prompt"] = custom_prompt
+    st.session_state["custom_image_prompt_mode"] = custom_mode
 
     # Sidebar view of current character bible
     with st.sidebar.expander("Character bible (auto)", expanded=False):
@@ -228,8 +252,12 @@ def main() -> None:
             if (
                 show_image_prompts
                 and msg.get("role") == "assistant"
-                and (img_prompt := msg.get("image_prompt"))
+                and (msg.get("image_prompt") or msg.get("final_image_prompt"))
             ):
+                auto_prompt = msg.get("image_prompt")
+                final_prompt = msg.get("final_image_prompt") or auto_prompt
+                if not final_prompt:
+                    continue
                 with st.expander("Image prompt for this scene", expanded=False):
                     if image_moment := msg.get("image_moment"):
                         st.markdown(f"**Key visual moment (from Grok):** {image_moment}")
@@ -240,8 +268,12 @@ def main() -> None:
                         st.markdown(f"**Emotion:** `{emotion}`")
                     if beat_type or emotion:
                         st.markdown("---")
+                    if auto_prompt and auto_prompt != final_prompt:
+                        st.markdown("**Auto-generated prompt:**")
+                        st.markdown(auto_prompt)
+                        st.markdown("---")
                     st.markdown("**Final image prompt sent to model:**")
-                    st.markdown(img_prompt)
+                    st.markdown(final_prompt)
 
     prompt = st.chat_input("Start a new story or continue the current one...")
     if not prompt:
@@ -300,6 +332,7 @@ def main() -> None:
         # After streaming finishes, generate an image for this chunk
         img_obj = None
         image_prompt = None
+        final_image_prompt = None
         image_moment = None
         beat_type = None
         emotion_word = None
@@ -341,9 +374,23 @@ def main() -> None:
                 beat_type=beat_type,
                 emotion_word=emotion_word,
             )
+            # Apply custom prompt override/enhancement if provided.
+            custom_prompt = st.session_state.get("custom_image_prompt", "").strip()
+            custom_mode = st.session_state.get("custom_image_prompt_mode", "off")
+            final_image_prompt = image_prompt
+            if custom_prompt:
+                if custom_mode == "replace":
+                    final_image_prompt = custom_prompt
+                elif custom_mode == "enhance":
+                    final_image_prompt = f"{image_prompt} Extra details: {custom_prompt}"
+
+            # Reset one-shot custom prompt after use.
+            st.session_state["custom_image_prompt"] = ""
+            st.session_state["custom_image_prompt_mode"] = "off"
+
             try:
                 img_obj = generate_image_with_backend(
-                    image_prompt,
+                    final_image_prompt or image_prompt,
                     backend=image_backend,
                     grok_client=client,
                     sd_model_id=sd_model_id,
@@ -357,7 +404,7 @@ def main() -> None:
             else:
                 st.info("No image was generated for this scene.")
 
-            if show_image_prompts and image_prompt:
+            if show_image_prompts and (final_image_prompt or image_prompt):
                 with st.expander("Image prompt for this scene", expanded=False):
                     if image_moment:
                         st.markdown(f"**Key visual moment (from Grok):** {image_moment}")
@@ -368,8 +415,12 @@ def main() -> None:
                         st.markdown(f"**Emotion:** `{emotion_word}`")
                     if beat_type or emotion_word:
                         st.markdown("---")
+                    if image_prompt and final_image_prompt and image_prompt != final_image_prompt:
+                        st.markdown("**Auto-generated prompt:**")
+                        st.markdown(image_prompt)
+                        st.markdown("---")
                     st.markdown("**Final image prompt sent to model:**")
-                    st.markdown(image_prompt)
+                    st.markdown(final_image_prompt or image_prompt)
 
     # Save assistant message (with image if any)
     st.session_state.messages.append(
@@ -378,6 +429,7 @@ def main() -> None:
             "content": full_story_chunk,
             "image": img_obj,
             "image_prompt": image_prompt,
+            "final_image_prompt": final_image_prompt or image_prompt,
             "image_moment": image_moment,
             "beat_type": beat_type,
             "emotion_word": emotion_word,
