@@ -139,12 +139,14 @@ class GrokClient:
             base_instruction = (
                 "Given the answer text below, describe ONE visual illustration "
                 "that would best help someone understand it. If it describes a "
-                "real historical event, choose the most iconic scene showing key "
-                "people/objects and the wider context. If it explains a concept, "
-                "choose a simple diagram, map, or situation that illustrates the idea. "
-                "Write a single short sentence (under 120 characters). "
-                "Use concrete visual language. Do NOT ask questions. "
-                "Do NOT include dialogue."
+                "real historical event or object, choose the most iconic scene "
+                "showing the MAIN subject (e.g., Seawolf-class submarine) in its "
+                "typical environment, with key context (e.g., underwater, ice, "
+                "airfield). If it explains a concept, choose a simple diagram, map, "
+                "or situation that illustrates the idea. Always name the main "
+                "subject once in the sentence. Write a single short sentence "
+                "(under 120 characters). Use concrete visual language. "
+                "Do NOT ask questions. Do NOT include dialogue."
             )
             label = "Illustration moment"
         else:
@@ -479,7 +481,8 @@ def build_image_prompt_from_story(
             char_phrase = f" Character focus: {joined}."
 
     # Hard cap on scene text to avoid hitting the model's max prompt length.
-    max_scene_chars = 300
+    # Keep this conservative so CLIP sees the entire description.
+    max_scene_chars = 200
     if len(scene_text) > max_scene_chars:
         scene_text = scene_text[-max_scene_chars:]
 
@@ -518,8 +521,8 @@ def build_image_prompt_from_story(
         f"{char_phrase}"
     )
 
-    # Final safety cap.
-    max_total_chars = 600
+    # Final safety cap on the entire prompt to avoid overly long text.
+    max_total_chars = 400
     if len(base_prompt) <= max_total_chars:
         return base_prompt
 
