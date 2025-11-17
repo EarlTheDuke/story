@@ -5,6 +5,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from grok_client import GrokClient, build_image_prompt_from_story
+from image_providers import ImageBackend, generate_image_with_backend
 
 
 st.set_page_config(page_title="Real-Time AI Storyteller", layout="wide")
@@ -151,6 +152,19 @@ def main() -> None:
         value=True,
         help="When enabled, builds a character bible and injects short visual descriptions into image prompts.",
     )
+    image_backend_label = st.sidebar.selectbox(
+        "Image backend",
+        [
+            "Grok (xAI API)",
+            "Local Stable Diffusion (Diffusers)",
+        ],
+        index=0,
+        help="Choose which image generator to use.",
+    )
+    if "Stable Diffusion" in image_backend_label:
+        image_backend = ImageBackend.STABLE_DIFFUSION
+    else:
+        image_backend = ImageBackend.GROK
 
     st.sidebar.markdown("### Story & Image Style")
     story_tone = st.sidebar.selectbox(
@@ -173,6 +187,7 @@ def main() -> None:
     st.session_state["show_image_prompts"] = show_image_prompts
     st.session_state["use_advanced_prompts"] = use_advanced_prompts
     st.session_state["keep_characters_consistent"] = keep_characters_consistent
+    st.session_state["image_backend"] = image_backend
 
     # Sidebar view of current character bible
     with st.sidebar.expander("Character bible (auto)", expanded=False):
@@ -201,8 +216,8 @@ def main() -> None:
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            if img_url := msg.get("image_url"):
-                st.image(img_url, use_column_width=True)
+            if img := msg.get("image"):
+                st.image(img, use_column_width=True)
             if (
                 show_image_prompts
                 and msg.get("role") == "assistant"
@@ -276,7 +291,7 @@ def main() -> None:
                     st.warning(f"Character extraction failed: {e}")
 
         # After streaming finishes, generate an image for this chunk
-        img_url = None
+        img_obj = None
         image_prompt = None
         image_moment = None
         beat_type = None
@@ -320,13 +335,17 @@ def main() -> None:
                 emotion_word=emotion_word,
             )
             try:
-                img_url = client.generate_image(image_prompt)
+                img_obj = generate_image_with_backend(
+                    image_prompt,
+                    backend=image_backend,
+                    grok_client=client,
+                )
             except Exception as e:  # noqa: BLE001
                 st.error(f"Image generation failed: {e}")
-                img_url = None
+                img_obj = None
 
-            if img_url:
-                st.image(img_url, caption="Scene Illustration", use_column_width=True)
+            if img_obj is not None:
+                st.image(img_obj, caption="Scene Illustration", use_column_width=True)
             else:
                 st.info("No image was generated for this scene.")
 
@@ -349,7 +368,7 @@ def main() -> None:
         {
             "role": "assistant",
             "content": full_story_chunk,
-            "image_url": img_url,
+            "image": img_obj,
             "image_prompt": image_prompt,
             "image_moment": image_moment,
             "beat_type": beat_type,
